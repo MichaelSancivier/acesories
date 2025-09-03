@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import date, datetime
 from io import BytesIO
+from decimal import Decimal, ROUND_HALF_UP
 
 # ===================== Config =====================
 st.set_page_config(page_title="Cálculo de Rescisão de Acessórios", layout="wide")
@@ -53,6 +54,17 @@ def read_any(uploaded):
     if uploaded is None: return None
     name = uploaded.name.lower()
     return pd.read_csv(uploaded) if name.endswith(".csv") else pd.read_excel(uploaded)
+
+# ---------- Formatação BRL (R$ 1.234,56) ----------
+def brl(x) -> str:
+    if pd.isna(x): x = 0
+    q = Decimal(str(float(x))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    s = f"{q:.2f}"                 # '1234.56'
+    inteiro, frac = s.split(".")
+    inteiro_rev = inteiro[::-1]
+    partes = [inteiro_rev[i:i+3] for i in range(0, len(inteiro_rev), 3)]
+    inteiro_pt = ".".join(p[::-1] for p in partes[::-1])
+    return f"R$ {inteiro_pt},{frac}"
 
 # ===================== Sidebar - SOMENTE upload da base =====================
 st.sidebar.header("Upload da base")
@@ -202,19 +214,24 @@ f = f[(f["valor_cobrar_com_devolucao"].between(faixa_cdev[0], faixa_cdev[1])) &
 
 st.markdown("---")
 
-# ===================== Métricas =====================
+# ===================== Métricas (formato BRL) =====================
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Valor Total dos Contratos com Devolução", f"R$ {f['valor_cobrar_com_devolucao'].sum():,.2f}")
-m2.metric("Valor Total dos Contratos sem Devolução", f"R$ {f['valor_cobrar_sem_devolucao'].sum():,.2f}")
+m1.metric("Valor Total dos Contratos com Devolução", brl(f['valor_cobrar_com_devolucao'].sum()))
+m2.metric("Valor Total dos Contratos sem Devolução", brl(f['valor_cobrar_sem_devolucao'].sum()))
 m3.metric("Quantidade de Contratos", f"{f['termo'].nunique():,}")
 m4.metric("Quantidade de Acessórios", f"{len(f):,}")
 
-# ===================== Tabela detalhada =====================
+# ===================== Tabela detalhada (formato BRL) =====================
 cols_show = ["classe","termo","servico_acessorio","status_do_contrato",
              "valor_cobrar_com_devolucao","valor_cobrar_sem_devolucao"]
 presentes = [c for c in cols_show if c in f.columns]
 tbl = f[presentes].sort_values(["classe","termo","servico_acessorio"]).reset_index(drop=True)
-st.dataframe(tbl, use_container_width=True)
+
+styled_tbl = tbl.style.format({
+    "valor_cobrar_com_devolucao": brl,
+    "valor_cobrar_sem_devolucao": brl,
+})
+st.dataframe(styled_tbl, use_container_width=True)
 
 # ===================== Resumo (agrupado) =====================
 st.subheader("Resumo consolidado (opcional)")
@@ -226,11 +243,17 @@ if agr_por:
         total_com_devolucao=("valor_cobrar_com_devolucao","sum"),
         total_sem_devolucao=("valor_cobrar_sem_devolucao","sum"),
     )
-    st.dataframe(agg, use_container_width=True)
+    st.dataframe(
+        agg.style.format({
+            "total_com_devolucao": brl,
+            "total_sem_devolucao": brl,
+        }),
+        use_container_width=True
+    )
 else:
     agg = pd.DataFrame()
 
-# ===================== Exportar =====================
+# ===================== Exportar (mantém números crus) =====================
 st.subheader("Exportar resultados")
 csv_bytes = f.to_csv(index=False).encode("utf-8-sig")
 st.download_button("Baixar CSV (detalhado filtrado)", csv_bytes, file_name="resultado_rescisao.csv", mime="text/csv")
@@ -248,4 +271,3 @@ try:
     )
 except Exception:
     st.info("Para exportar em Excel localmente, garanta que a dependência 'XlsxWriter' está instalada.")
-
