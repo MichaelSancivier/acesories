@@ -172,6 +172,13 @@ base_df["valor_cobrar_sem_devolucao"]  = base_df.apply(valor_sem_devolucao, axis
 # ===================== Filtros =====================
 st.subheader("Filtros")
 
+# Observação para os usuários sobre os sliders
+st.info(
+    "💡 **Sobre os sliders**: as **pontas** mostram o **mínimo** e o **máximo** que existem no arquivo carregado. "
+    "As **duas alças** definem o **intervalo selecionado**. "
+    "Esses filtros **combinam** com Cliente/Classe/Termo/Serviço/Status acima."
+)
+
 c1, c2, c3 = st.columns(3)
 with c1:
     sel_clientes = st.multiselect("Cliente", sorted(base_df["cliente"].astype(str).unique().tolist()))
@@ -193,14 +200,28 @@ with c5:
 c6, c7 = st.columns(2)
 min_cdev, max_cdev = float(base_df["valor_cobrar_com_devolucao"].min()), float(base_df["valor_cobrar_com_devolucao"].max())
 min_sdev, max_sdev = float(base_df["valor_cobrar_sem_devolucao"].min()), float(base_df["valor_cobrar_sem_devolucao"].max())
+
 with c6:
-    faixa_cdev = st.slider("Faixa de valores (Com Devolução)",
-        min_value=float(np.floor(min_cdev)), max_value=float(np.ceil(max_cdev)),
-        value=(float(np.floor(min_cdev)), float(np.ceil(max_cdev))), step=1.0)
+    faixa_cdev = st.slider(
+        "Faixa de valores (Com Devolução)",
+        min_value=float(np.floor(min_cdev)),
+        max_value=float(np.ceil(max_cdev)),
+        value=(float(np.floor(min_cdev)), float(np.ceil(max_cdev))),
+        step=1.0,
+        help="Filtra pelo campo calculado **valor_cobrar_com_devolucao**. Arraste as alças para limitar o intervalo."
+    )
+    st.caption(f"Selecionado: **{brl(faixa_cdev[0])} a {brl(faixa_cdev[1])}** · Limites do arquivo: {brl(min_cdev)} a {brl(max_cdev)}")
+
 with c7:
-    faixa_sdev = st.slider("Faixa de valores (Sem Devolução)",
-        min_value=float(np.floor(min_sdev)), max_value=float(np.ceil(max_sdev)),
-        value=(float(np.floor(min_sdev)), float(np.ceil(max_sdev))), step=1.0)
+    faixa_sdev = st.slider(
+        "Faixa de valores (Sem Devolução)",
+        min_value=float(np.floor(min_sdev)),
+        max_value=float(np.ceil(max_sdev)),
+        value=(float(np.floor(min_sdev)), float(np.ceil(max_sdev))),
+        step=1.0,
+        help="Filtra pelo campo calculado **valor_cobrar_sem_devolucao**. Arraste as alças para limitar o intervalo."
+    )
+    st.caption(f"Selecionado: **{brl(faixa_sdev[0])} a {brl(faixa_sdev[1])}** · Limites do arquivo: {brl(min_sdev)} a {brl(max_sdev)}")
 
 # Aplica filtros
 f = base_df.copy()
