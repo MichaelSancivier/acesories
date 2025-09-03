@@ -4,6 +4,7 @@ import numpy as np
 from datetime import date, datetime
 from io import BytesIO
 from decimal import Decimal, ROUND_HALF_UP
+import difflib
 
 # ===================== Config =====================
 st.set_page_config(page_title="Cálculo de Rescisão de Acessórios", layout="wide")
@@ -75,6 +76,12 @@ if base_df is None:
     st.info("Faça o upload da **base principal**. Use os cabeçalhos do arquivo *base_estrutura_oficial.csv*.")
     st.stop()
 
+# ===================== Estado para mapeamento manual =====================
+if "manual_map" not in st.session_state:
+    st.session_state.manual_map = {}
+if "manual_map_applied" not in st.session_state:
+    st.session_state.manual_map_applied = False
+
 # ===================== Header mapping (PT -> internos) =====================
 HEADER_MAP = {
     "servico/acesorio":"servico_acessorio", "servico/acessorio":"servico_acessorio",
@@ -93,17 +100,53 @@ HEADER_MAP = {
     "valor de multa de não devolução do servico/acessorio":"valor_multa_nao_devolucao",
     "instalado":"instalado",
 }
+
+# aplica mapeamento padrão e normaliza
 rename = {c: HEADER_MAP[normalize_text(c)] for c in base_df.columns if normalize_text(c) in HEADER_MAP}
 base_df = base_df.rename(columns=rename)
 base_df.columns = [normalize_text(c) for c in base_df.columns]
 
-# ===================== Validação & tipos =====================
-need = {"cliente","classe","termo","servico_acessorio","valor_mensalidade"}
-miss = need - set(base_df.columns)
-if miss:
-    st.error(f"Colunas obrigatórias ausentes: {sorted(miss)}")
-    st.stop()
+# re-aplica mapeamento manual salvo (se houver)
+if st.session_state.manual_map_applied and st.session_state.manual_map:
+    ren_extra = {v: k for k, v in st.session_state.manual_map.items() if v != "(não mapear)"}
+    base_df = base_df.rename(columns=ren_extra)
+    base_df.columns = [normalize_text(c) for c in base_df.columns]
 
+# ===================== Validação & Assistente de Mapeamento =====================
+need = {"cliente","classe","termo","servico_acessorio","valor_mensalidade"}
+missing = need - set(base_df.columns)
+
+if missing:
+    st.warning("Não encontrei algumas colunas obrigatórias no arquivo. Faça o mapeamento manual abaixo e clique em **Aplicar mapeamento**.")
+
+    cols_raw = list(base_df.columns)  # já normalizados
+    ui_map = {}
+
+    for need_col in sorted(missing):
+        guess = difflib.get_close_matches(need_col, cols_raw, n=1)
+        default = guess[0] if guess else None
+        ui_map[need_col] = st.selectbox(
+            f"Qual coluna do arquivo corresponde a **{need_col}**?",
+            options=["(não mapear)"] + cols_raw,
+            index=(cols_raw.index(default) + 1 if default in cols_raw else 0),
+            key=f"map_{need_col}"
+        )
+
+    if st.button("Aplicar mapeamento"):
+        st.session_state.manual_map = ui_map
+        st.session_state.manual_map_applied = True
+        # aplica imediatamente nesta execução também:
+        ren_extra = {ui_map[k]: k for k in ui_map if ui_map[k] != "(não mapear)"}
+        base_df = base_df.rename(columns=ren_extra)
+        base_df.columns = [normalize_text(c) for c in base_df.columns]
+        # reavalia faltantes
+        missing = need - set(base_df.columns)
+
+    if missing:
+        st.error(f"Colunas obrigatórias ausentes após o mapeamento: {sorted(missing)}")
+        st.stop()
+
+# ===================== Tipos/derivados após garantir obrigatórias =====================
 # datas
 if "inicio_vigencia" in base_df.columns: base_df["inicio_vigencia"] = base_df["inicio_vigencia"].apply(parse_date_any)
 if "fim_vigencia" in base_df.columns: base_df["fim_vigencia"] = base_df["fim_vigencia"].apply(parse_date_any)
@@ -172,7 +215,7 @@ base_df["valor_cobrar_sem_devolucao"]  = base_df.apply(valor_sem_devolucao, axis
 # ===================== Filtros =====================
 st.subheader("Filtros")
 
-# Observação para os usuários sobre os sliders
+# Observação para os sliders
 st.info(
     "💡 **Sobre os sliders**: as **pontas** mostram o **mínimo** e o **máximo** que existem no arquivo carregado. "
     "As **duas alças** definem o **intervalo selecionado**. "
@@ -280,6 +323,7 @@ csv_bytes = f.to_csv(index=False).encode("utf-8-sig")
 st.download_button("Baixar CSV (detalhado filtrado)", csv_bytes, file_name="resultado_rescisao.csv", mime="text/csv")
 
 try:
+    import xlsxwriter  # engine único para Excel (simplifica o deploy)
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         tbl.to_excel(writer, index=False, sheet_name="detalhado")
@@ -291,4 +335,4 @@ try:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 except Exception:
-    st.info("Para exportar em Excel localmente, garanta que a dependência 'XlsxWriter' está instalada.")
+    st.info("Para exportar em Excel, garanta que **XlsxWriter** está instalado (adicione no requirements.txt).")
